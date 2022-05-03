@@ -31,22 +31,21 @@ toil_index = toil_index[toil_index['sample'].isin(trs_annotation['ensembl_trs_id
 toil_trs_uniprot_indices = np.array([-1]+list(toil_index.index)) + 1 #[-1] to account for header row, see next step
 
 
-toil_data = pd.read_csv('../data/raw/toil_expression_trs_20220426', sep='\t', skiprows=lambda x: x not in toil_trs_uniprot_indices)
+toil_data = pd.read_csv('../data/raw/toil_expression_trs_20220426', sep='\t', skiprows=lambda x: x not in toil_trs_uniprot_indices, 
+                        index_col=[0], dtype = 'float32', converters = {'sample': str})
 
-toil_data['sample'] = toil_data['sample'].map(drop_version)
-toil_data = toil_data.set_index('sample', drop=True)
+toil_data.index = toil_data.index.map(drop_version)
 
-toil_data = toil_data.astype('float32') #Switch to float32 from float64 to reduce memory requirements
-
-toil_data = np.around(2 ** toil_data - 0.001) #Convert expression values to TPM
+toil_data = np.around(2 ** toil_data - 0.001, decimals=5) #Convert expression values to TPM
 toil_data = toil_data.where(toil_data != -0.0, 0.0)
 
 toil_data['uniprot_isoform'] = toil_data.index.map(trs_annotation.set_index('ensembl_trs_id')['uniprot_isoform'])
 
+
 #Sum TPM values for transcripts encoding the same protein
 toil_data = toil_data.groupby('uniprot_isoform').sum()
 
-toil_data['uniprot_base'] = toil_data.index.map(drop_isoform)
+toil_data['uniprot_base'] = toil_data.index.map(trs_annotation.set_index('uniprot_isoform')['uniprot_base'])
 
 #Leave only genes which have a primary isoform in the dataset
 have_primary_isoform = toil_data.index[toil_data.index.str.contains('-1')].map(drop_isoform).unique().values
@@ -55,8 +54,12 @@ toil_data = toil_data[toil_data['uniprot_base'].isin(have_primary_isoform)]
 #Leave only genes which have more than one isoform bar primary in the dataset
 toil_data = toil_data[toil_data.duplicated('uniprot_base', keep=False)].drop('uniprot_base', axis=1)
 
-#Convert expression values from TPM to log2(TPM + 1)
-toil_data = np.log2(toil_data + 1)
+
+toil_tcga_data = toil_data[toil_data.columns[toil_data.columns.str.match('TCGA')]]
+
+toil_tcga_data.to_csv(f'../data/processed/toil_tcga_expression_trs_uniprot_splices_only_{datetime.date.today().strftime("%Y%m%d")}.csv')
 
 
-toil_data.to_csv(f'../data/processed/toil_expression_trs_uniprot_splices_only_{datetime.date.today().strftime("%Y%m%d")}.csv')
+toil_gtex_data = toil_data[toil_data.columns[toil_data.columns.str.match('GTEX')]]
+
+toil_gtex_data.to_csv(f'../data/processed/toil_gtex_expression_trs_uniprot_splices_only_{datetime.date.today().strftime("%Y%m%d")}.csv')
